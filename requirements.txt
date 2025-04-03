@@ -1,0 +1,11 @@
+gradio
+langchain
+faiss-cpu
+sentence-transformers
+huggingface_hub
+google-generativeai
+python-dotenv
+fastapi
+uvicorn
+langchain-community
+langchain_google_genai
