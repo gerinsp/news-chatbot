@@ -13,7 +13,6 @@ chat_model = GoogleGenerativeAI(
         api_key=GOOGLE_API_KEY
     )
 
-
 def get_relevant_news(query):
     filter_query = {"type": "news"}
     docs = vectorstore.similarity_search(query, k=5, filter=filter_query)
