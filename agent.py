@@ -5,6 +5,7 @@ from config import GOOGLE_API_KEY
 from news_store import load_news_store
 from datetime import datetime
 from langchain.schema import AIMessage, HumanMessage
+from evaluator import evaluate_metrics
 
 vectorstore = load_news_store()
 
@@ -62,16 +63,34 @@ tools = [
 ]
 
 agent = initialize_agent(
-    tools, chat_model, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True
+    tools, chat_model, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=False
 )
 
-
 def chatbot_response(user_input, history):
-    context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history] + [f"user: {user_input}"])
+    # --- retrieve context ---
+    relevant_docs = vectorstore.similarity_search(user_input, k=5, filter={"type":"news"})
+    context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
 
-    response = agent.invoke({"input": context})
+    # --- generate answer ---
+    full_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+    prompt = f"{full_context}\nuser: {user_input}\nBerikan jawaban singkat:"
+    result = agent.invoke({"input": prompt})
+    answer = result["output"]
 
-    return response["output"]
+    # --- evaluate ---
+    metrics = evaluate_metrics(context_text, user_input, answer)
+
+    # --- format history + metrics table ---
+    table = (
+        f"| Pertanyaan | Precision | Recall | F1 | Relevancy | Similarity | Faithfulness | Correctness |\n"
+        f"|---|---|---|---|---|---|---|---|\n"
+        f"| `{user_input}` | {metrics['precision']}% | {metrics['recall']}% "
+        f"| {metrics['f1']}% | {metrics['relevancy']}% | {metrics['similarity']}% "
+        f"| {metrics['faithfulness']}% | {metrics['correctness']}% |"
+    )
+
+    # Kembalikan jawaban + metrik dalam satu string
+    return f"{answer}\n\n**Metrik Evaluasi**\n{table}"
 
 
 
