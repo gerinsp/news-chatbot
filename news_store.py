@@ -2,17 +2,38 @@ from langchain.vectorstores import FAISS
 from langchain.schema import Document
 from datetime import datetime
 from embeddings import embedding
-import json
+from sqlalchemy import create_engine, text
 
-with open('data/news_articles.json', 'r') as file:
-    news_articles = json.load(file)
+engine = create_engine("mysql+pymysql://root@localhost:3306/portal_berita")
 
+def fetch_news_from_db():
+    with engine.connect() as connection:
+        result = connection.execute(
+            text("""
+                SELECT 
+                    post_title as title, 
+                    post_content as content, 
+                    published_at as date 
+                FROM posts
+                WHERE post_status = 'Published'
+                """))
+        articles = []
+        for row in result:
+            article = {
+                "title": row.title,
+                "content": row.content,
+                "type": 'news',
+                "date": row.date.strftime("%Y-%m-%d") if row.date else None
+            }
+            articles.append(article)
+        return articles
 
 def save_news():
     docs = []
+    news_articles = fetch_news_from_db()
 
     for article in news_articles:
-        if "date" in article:
+        if article["date"]:
             date_obj = datetime.strptime(article["date"], "%Y-%m-%d")
             metadata = {"title": article["title"], "date": date_obj, "type": article["type"]}
         else:

@@ -1,11 +1,19 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from news_store import save_news, load_news_store
-from embeddings import embedding
-from langchain.vectorstores import FAISS
 from datetime import datetime
+from agent import chatbot_response_api
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 vectorstore = load_news_store()
 
@@ -20,10 +28,27 @@ def add_news_to_faiss(article: NewsArticle):
         "page_content": article.content,
         "metadata": {
             "title": article.title,
-            "date": date_obj
+            "date": date_obj,
+            "type": "news"
         }
     }
     vectorstore.add_documents([doc])
+
+@app.get("/")
+def read_root():
+    return {"message": "API siap digunakan"}
+
+class ChatRequest(BaseModel):
+    user_input: str
+    history: list[dict]  # format: [{"role": "user", "content": "..."}, ...]
+
+@app.post("/chat/")
+async def chat_endpoint(req: ChatRequest):
+    try:
+        response = chatbot_response_api(req.user_input, req.history)
+        return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/add_news/")
 async def add_news(article: NewsArticle):
@@ -35,4 +60,4 @@ async def add_news(article: NewsArticle):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

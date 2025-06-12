@@ -66,21 +66,30 @@ agent = initialize_agent(
     tools, chat_model, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=False
 )
 
+
+def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
+    full_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+    prompt = f"{full_context}\nuser: {user_input}\nBerikan jawaban singkat:"
+
+    result = agent.invoke({"input": prompt})
+    answer = result["output"]
+
+    return {
+        "answer": answer
+    }
+
+
 def chatbot_response(user_input, history):
-    # --- retrieve context ---
     relevant_docs = vectorstore.similarity_search(user_input, k=5, filter={"type":"news"})
     context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
 
-    # --- generate answer ---
     full_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
     prompt = f"{full_context}\nuser: {user_input}\nBerikan jawaban singkat:"
     result = agent.invoke({"input": prompt})
     answer = result["output"]
 
-    # --- evaluate ---
     metrics = evaluate_metrics(context_text, user_input, answer)
 
-    # --- format history + metrics table ---
     table = (
         f"| Pertanyaan | Precision | Recall | F1 | Relevancy | Similarity | Faithfulness | Correctness |\n"
         f"|---|---|---|---|---|---|---|---|\n"
@@ -89,7 +98,6 @@ def chatbot_response(user_input, history):
         f"| {metrics['faithfulness']}% | {metrics['correctness']}% |"
     )
 
-    # Kembalikan jawaban + metrik dalam satu string
     return f"{answer}\n\n**Metrik Evaluasi**\n{table}"
 
 
