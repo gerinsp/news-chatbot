@@ -3,6 +3,10 @@ from langchain.schema import Document
 from datetime import datetime
 from embeddings import embedding
 from sqlalchemy import create_engine, text
+import json
+
+with open('data/news_articles.json', 'r', encoding='utf-8') as file:
+    news_form = json.load(file)
 
 engine = create_engine("mysql+pymysql://root@localhost:3306/portal_berita")
 
@@ -29,24 +33,22 @@ def fetch_news_from_db():
         return articles
 
 def save_news():
-    docs = []
     news_articles = fetch_news_from_db()
 
-    for article in news_articles:
-        if article["date"]:
-            date_obj = datetime.strptime(article["date"], "%Y-%m-%d")
-            metadata = {"title": article["title"], "date": date_obj, "type": article["type"]}
-        else:
-            metadata = {"title": article["title"], "type": article["type"]}
-
-        doc = Document(
-            page_content=article["content"],
-            metadata=metadata
-        )
-        docs.append(doc)
+    docs = [create_document(article) for article in news_articles + news_form]
 
     vectorstore = FAISS.from_documents(docs, embedding)
     vectorstore.save_local("news_index")
+
+def create_document(article):
+    metadata = {"title": article["title"], "type": article["type"]}
+    if article.get("date"):
+        try:
+            date_obj = datetime.strptime(article["date"], "%Y-%m-%d")
+            metadata["date"] = date_obj
+        except ValueError:
+            pass
+    return Document(page_content=article["content"], metadata=metadata)
 
 def load_news_store():
     return FAISS.load_local("news_index", embedding, allow_dangerous_deserialization=True)
