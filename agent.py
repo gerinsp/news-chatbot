@@ -68,25 +68,62 @@ agent = initialize_agent(
 
 
 def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
+    relevant_docs = vectorstore.similarity_search(user_input, k=5, filter={"type": "news"})
+
+    if not relevant_docs:
+        return {
+            "answer": "Maaf, saya tidak menemukan informasi yang relevan untuk menjawab pertanyaan Anda."
+        }
+
+    context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
     full_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
     prompt = f"{full_context}\nuser: {user_input}\nBerikan jawaban singkat:"
 
-    result = agent.invoke({"input": prompt})
-    answer = result["output"]
+    try:
+        result = agent.invoke({"input": prompt})
+        answer = result.get("output", "").strip()
+    except Exception as e:
+        return {
+            "answer": f"Terjadi kesalahan saat memproses jawaban: {str(e)}"
+        }
+
+    if not answer:
+        return {
+            "answer": "Maaf, saya belum bisa memberikan jawaban yang tepat untuk pertanyaan tersebut."
+        }
 
     return {
         "answer": answer
     }
 
-
 def chatbot_response(user_input, history):
-    relevant_docs = vectorstore.similarity_search(user_input, k=5, filter={"type":"news"})
-    context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
+    relevant_docs = vectorstore.similarity_search(user_input, k=5)
 
+    if not relevant_docs:
+        return "Maaf, saya tidak menemukan informasi yang relevan untuk menjawab pertanyaan Anda."
+
+    context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
     full_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
-    prompt = f"{full_context}\nuser: {user_input}\nBerikan jawaban singkat:"
-    result = agent.invoke({"input": prompt})
-    answer = result["output"]
+    prompt = (
+        f"Berikut adalah beberapa informasi yang relevan:\n\n"
+        f"{context_text}\n\n"
+        f"Percakapan sebelumnya:\n{full_context}\n\n"
+        f"user: {user_input}\n\n"
+        f"Jawaban:\n"
+        f"Berikan jawaban hanya berdasarkan informasi di atas. "
+        f"Jika memungkinkan, salin langsung kalimat dari informasi tersebut tanpa mengubah gaya bahasa. "
+        f"Jangan menambahkan opini atau informasi di luar konteks. "
+        f"Jika informasi tidak ditemukan, jawab dengan jujur 'Informasi tidak ditemukan dalam dokumen di atas.'"
+    )
+
+    try:
+        result = agent.invoke({"input": prompt}, config={"handle_parsing_errors": True})
+        answer = result.get("output", "").strip()
+    except Exception as e:
+        return f"Terjadi kesalahan saat memproses jawaban: {str(e)}"
+
+    if not answer:
+        return "Maaf, saya belum bisa memberikan jawaban yang tepat untuk pertanyaan tersebut."
 
     metrics = evaluate_metrics(context_text, user_input, answer)
 
