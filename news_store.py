@@ -17,6 +17,7 @@ def fetch_news_from_db():
                 SELECT 
                     post_title as title, 
                     post_content as content, 
+                    slug,
                     published_at as date 
                 FROM posts
                 WHERE post_status = 'Published'
@@ -26,6 +27,7 @@ def fetch_news_from_db():
             article = {
                 "title": row.title,
                 "content": row.content,
+                "slug": row.slug,
                 "type": 'news',
                 "date": row.date.strftime("%Y-%m-%d") if row.date else None
             }
@@ -41,7 +43,11 @@ def save_news():
     vectorstore.save_local("news_index")
 
 def create_document(article):
-    metadata = {"title": article["title"], "type": article["type"]}
+    metadata = {
+        "title": article["title"],
+        "type": article["type"],
+        "slug": article.get("slug")
+    }
     if article.get("date"):
         try:
             date_obj = datetime.strptime(article["date"], "%Y-%m-%d")

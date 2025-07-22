@@ -75,9 +75,28 @@ def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
             "answer": "Maaf, saya tidak menemukan informasi yang relevan untuk menjawab pertanyaan Anda."
         }
 
-    context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
+    context_text = "\n\n".join([
+        f"""{doc.page_content}<br>
+        Sumber: <a href="http://127.0.0.1:8000/posts/{doc.metadata['slug']}" target="_blank">
+          http://127.0.0.1:8000/posts/{doc.metadata['slug']}
+        </a><br>"""
+        for doc in relevant_docs
+        if 'slug' in doc.metadata
+    ])
+
     full_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
-    prompt = f"{full_context}\nuser: {user_input}\nBerikan jawaban singkat:"
+    prompt = (
+        f"Berikut adalah beberapa informasi berita yang relevan:\n\n"
+        f"{context_text}\n\n"
+        f"Percakapan sebelumnya:\n{full_context}\n\n"
+        f"user: {user_input}\n\n"
+        f"Jawaban:\n"
+        f"Berikan jawaban singkat berdasarkan informasi di atas. "
+        f"Jika pengguna tampaknya ingin membaca sumber lengkapnya, dan informasi tersedia, "
+        f"tampilkan link artikel yang ada di dalam teks (berupa 'Sumber: https://...'). "
+        f"Jika informasi tidak ditemukan, jawab dengan jujur."
+        f"Jangan hilangkan tag HTML <a></a> untuk text berupa link."
+    )
 
     try:
         result = agent.invoke({"input": prompt})
@@ -97,42 +116,61 @@ def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
     }
 
 def chatbot_response(user_input, history):
+    # 1) Ambil dokumen relevan
     relevant_docs = vectorstore.similarity_search(user_input, k=5)
-
     if not relevant_docs:
         return "Maaf, saya tidak menemukan informasi yang relevan untuk menjawab pertanyaan Anda."
 
-    context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
-    full_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+    # 2) Siapkan context list
+    contexts = []
+    for doc in relevant_docs:
+        if 'slug' in doc.metadata:
+            teks = doc.page_content
+            link = f"http://127.0.0.1:8000/posts/{doc.metadata['slug']}"
+            contexts.append(f"{teks}\n(Sumber: {link})")
+
+    # 3) Bangun prompt untuk agent
+    prior_conv = "\n".join(f"{m['role']}: {m['content']}" for m in history)
     prompt = (
-        f"Berikut adalah beberapa informasi yang relevan:\n\n"
-        f"{context_text}\n\n"
-        f"Percakapan sebelumnya:\n{full_context}\n\n"
+        "Berikut adalah beberapa informasi yang relevan:\n\n"
+        f"{chr(10).join(contexts)}\n\n"
+        f"Percakapan sebelumnya:\n{prior_conv}\n\n"
         f"user: {user_input}\n\n"
-        f"Jawaban:\n"
-        f"Berikan jawaban hanya berdasarkan informasi di atas. "
-        f"Jika memungkinkan, salin langsung kalimat dari informasi tersebut tanpa mengubah gaya bahasa. "
-        f"Jangan menambahkan opini atau informasi di luar konteks. "
-        f"Jika informasi tidak ditemukan, jawab dengan jujur 'Informasi tidak ditemukan dalam dokumen di atas.'"
+        "Jawaban:\n"
+        "Jawab pertanyaan pengguna hanya berdasarkan informasi di atas. "
+        "Berikan jawaban yang langsung menjawab inti pertanyaan. "
+        "Jika pertanyaan memerlukan nama orang, tempat, atau organisasi, berikan hanya entitas tersebut tanpa penjelasan tambahan. "
+        "Jika memungkinkan, kutip secara langsung dari informasi di atas tanpa mengubah gaya bahasa. "
+        "Jangan menambahkan opini, interpretasi, atau informasi di luar konteks. "
+        "Jika informasi tidak ditemukan, jawab: 'Informasi tidak ditemukan dalam dokumen di atas.'"
     )
 
+    # 4) Panggil Agent (LangChain) yang dikonfigurasikan memakai Gemini
     try:
-        result = agent.invoke({"input": prompt}, config={"handle_parsing_errors": True})
+        result = agent.invoke({"input": prompt})
         answer = result.get("output", "").strip()
     except Exception as e:
-        return f"Terjadi kesalahan saat memproses jawaban: {str(e)}"
+        return f"Terjadi kesalahan saat memproses jawaban: {e}"
 
     if not answer:
         return "Maaf, saya belum bisa memberikan jawaban yang tepat untuk pertanyaan tersebut."
 
-    metrics = evaluate_metrics(context_text, user_input, answer)
+    # 5) Evaluasi dengan RAGAS
+    df_metrics = evaluate_metrics(user_input, contexts, answer)
+    # Ambil baris pertama
+    row = df_metrics.iloc[0]
 
+    # 6) Format tabel Markdown
     table = (
-        f"| Pertanyaan | Precision | Recall | F1 | Relevancy | Similarity | Faithfulness | Correctness |\n"
-        f"|---|---|---|---|---|---|---|---|\n"
-        f"| `{user_input}` | {metrics['precision']}% | {metrics['recall']}% "
-        f"| {metrics['f1']}% | {metrics['relevancy']}% | {metrics['similarity']}% "
-        f"| {metrics['faithfulness']}% | {metrics['correctness']}% |"
+        "| Pertanyaan | Precision | Recall | Entity Recall | Answer Relevancy | Similarity | Correctness |\n"
+        "|---|---|---|---|---|---|---|\n"
+        f"| `{row['user_input']}` "
+        f"| {row['context_precision'] * 100:.1f}% "
+        f"| {row['context_recall'] * 100:.1f}% "
+        f"| {row['context_entity_recall'] * 100:.1f}% "
+        f"| {row['answer_relevancy'] * 100:.1f}% "
+        f"| {row['semantic_similarity'] * 100:.1f}% "
+        f"| {row['answer_correctness'] * 100:.1f}% |"
     )
 
     return f"{answer}\n\n**Metrik Evaluasi**\n{table}"

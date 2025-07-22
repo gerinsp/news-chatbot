@@ -1,39 +1,57 @@
-from sentence_transformers import SentenceTransformer, util
-import nltk
-import os
-from nltk.tokenize.punkt import PunktSentenceTokenizer, PunktParameters
+from datasets import Dataset
+from ragas import evaluate
+from ragas.metrics import (
+    # Retrieval‑based
+    context_precision,       # rata‑rata Precision atas dokumen yang di‐retrieve
+    context_recall,          # Recall atas entitas/informasi yang dibutuhkan
+    context_entity_recall,   # Recall khusus pada entitas yang tercantum
 
-nltk.data.path.append(os.path.join(os.path.dirname(__file__), 'nltk_data'))
+    # Answer‑based
+    answer_relevancy,        # Seberapa relevan jawaban terhadap pertanyaan
+    answer_similarity,       # Semantic similarity antara jawaban & ground truth
+    answer_correctness,      # Kombinasi factuality + similarity terhadap ground truth
+)
 
-model = SentenceTransformer("./model/sentence-transformers/all-MiniLM-L6-v2")
 
-def evaluate_metrics(context: str, question: str, answer: str):
-    context = context.strip()
-    answer = answer.strip()
+from config import GOOGLE_API_KEY
+from embeddings import embedding
+from langchain_google_genai import GoogleGenerativeAI
 
-    punkt_param = PunktParameters()
-    punkt_tokenizer = PunktSentenceTokenizer(punkt_param)
-    sentences = punkt_tokenizer.tokenize(context)
-    sentence_embeddings = model.encode(sentences, convert_to_tensor=True)
-    answer_embedding = model.encode(answer, convert_to_tensor=True)
+# 1) Inisialisasi LLM Gemini (sesuaikan model ID & auth kamu)
+llm = GoogleGenerativeAI(
+    model="gemini-2.0-flash",
+    temperature=0.0,
+    api_key=GOOGLE_API_KEY,
+)
 
-    cosine_scores = util.pytorch_cos_sim(answer_embedding, sentence_embeddings)[0]
-    best_score = float(cosine_scores.max())
+METRICS = [
+    context_precision,
+    context_recall,
+    context_entity_recall,
+    answer_relevancy,
+    answer_similarity,
+    answer_correctness
+]
 
-    similarity_score = best_score
-    precision = similarity_score
-    recall = similarity_score
-    f1 = similarity_score
-    faithfulness = similarity_score
-    relevancy = similarity_score
-    correctness = 1.0 if similarity_score > 0.6 else 0.0
+def evaluate_metrics(query: str, contexts: list[str], answer: str, reference: str = None):
+    """
+    Panggil RAGAS evaluate() dan kembalikan Pandas DataFrame.
+    """
+    if reference is None:
+        reference = answer
 
-    return {
-        "precision": round(precision * 100, 2),
-        "recall": round(recall * 100, 2),
-        "f1": round(f1 * 100, 2),
-        "relevancy": round(relevancy * 100, 2),
-        "similarity": round(similarity_score * 100, 2),
-        "faithfulness": round(faithfulness * 100, 2),
-        "correctness": round(correctness * 100, 2)
+    data = {
+        "question": [query],
+        "answer": [answer],
+        "contexts": [contexts],
+        "ground_truth": [reference],  # ganti jika punya ground truth berbeda
     }
+    ds = Dataset.from_dict(data)
+    result = evaluate(
+        llm=llm,
+        embeddings=embedding,
+        dataset=ds,
+        metrics=METRICS,
+    )
+    # Konversi ke Pandas untuk kemudahan indexing
+    return result.to_pandas()
