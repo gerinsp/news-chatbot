@@ -10,8 +10,9 @@ from evaluator import evaluate_metrics
 vectorstore = load_news_store()
 
 chat_model = GoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        api_key=GOOGLE_API_KEY
+        model="gemini-2.5-flash",
+        api_key=GOOGLE_API_KEY,
+        temperature=0.1
     )
 
 def get_relevant_news(query):
@@ -99,7 +100,7 @@ def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
     )
 
     try:
-        result = agent.invoke({"input": prompt})
+        result = agent.invoke({"input": prompt}, handle_parsing_errors=True)
         answer = result.get("output", "").strip()
     except Exception as e:
         return {
@@ -116,20 +117,15 @@ def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
     }
 
 def chatbot_response(user_input, history):
-    # 1) Ambil dokumen relevan
-    relevant_docs = vectorstore.similarity_search(user_input, k=5)
+    relevant_docs = vectorstore.similarity_search(user_input, k=1)
     if not relevant_docs:
         return "Maaf, saya tidak menemukan informasi yang relevan untuk menjawab pertanyaan Anda."
 
-    # 2) Siapkan context list
     contexts = []
     for doc in relevant_docs:
-        if 'slug' in doc.metadata:
-            teks = doc.page_content
-            link = f"http://127.0.0.1:8000/posts/{doc.metadata['slug']}"
-            contexts.append(f"{teks}\n(Sumber: {link})")
+        teks = doc.page_content
+        contexts.append(f"{teks}")
 
-    # 3) Bangun prompt untuk agent
     prior_conv = "\n".join(f"{m['role']}: {m['content']}" for m in history)
     prompt = (
         "Berikut adalah beberapa informasi yang relevan:\n\n"
@@ -138,16 +134,14 @@ def chatbot_response(user_input, history):
         f"user: {user_input}\n\n"
         "Jawaban:\n"
         "Jawab pertanyaan pengguna hanya berdasarkan informasi di atas. "
-        "Berikan jawaban yang langsung menjawab inti pertanyaan. "
-        "Jika pertanyaan memerlukan nama orang, tempat, atau organisasi, berikan hanya entitas tersebut tanpa penjelasan tambahan. "
-        "Jika memungkinkan, kutip secara langsung dari informasi di atas tanpa mengubah gaya bahasa. "
-        "Jangan menambahkan opini, interpretasi, atau informasi di luar konteks. "
-        "Jika informasi tidak ditemukan, jawab: 'Informasi tidak ditemukan dalam dokumen di atas.'"
+        "Jawaban harus langsung, dan hanya menggunakan fakta dari konteks. "
+        "Jika pertanyaan memerlukan nama orang, tempat, atau organisasi, berikan **hanya entitas tersebut**. "
+        "Jika informasi tidak ditemukan, jawab: 'Final Answer: Informasi tidak ditemukan dalam dokumen di atas.'\n"
+        "Tulis jawaban diawali dengan: Final Answer:"
     )
 
-    # 4) Panggil Agent (LangChain) yang dikonfigurasikan memakai Gemini
     try:
-        result = agent.invoke({"input": prompt})
+        result = agent.invoke({"input": prompt}, handle_parsing_errors=True)
         answer = result.get("output", "").strip()
     except Exception as e:
         return f"Terjadi kesalahan saat memproses jawaban: {e}"
@@ -155,22 +149,18 @@ def chatbot_response(user_input, history):
     if not answer:
         return "Maaf, saya belum bisa memberikan jawaban yang tepat untuk pertanyaan tersebut."
 
-    # 5) Evaluasi dengan RAGAS
     df_metrics = evaluate_metrics(user_input, contexts, answer)
-    # Ambil baris pertama
     row = df_metrics.iloc[0]
 
-    # 6) Format tabel Markdown
     table = (
-        "| Pertanyaan | Precision | Recall | Entity Recall | Answer Relevancy | Similarity | Correctness |\n"
-        "|---|---|---|---|---|---|---|\n"
+        "| Pertanyaan | Precision | Recall | Similarity | Correctness | Faithfulness |\n"
+        "|---|---|---|---|---|---|\n"
         f"| `{row['user_input']}` "
         f"| {row['context_precision'] * 100:.1f}% "
         f"| {row['context_recall'] * 100:.1f}% "
-        f"| {row['context_entity_recall'] * 100:.1f}% "
-        f"| {row['answer_relevancy'] * 100:.1f}% "
         f"| {row['semantic_similarity'] * 100:.1f}% "
-        f"| {row['answer_correctness'] * 100:.1f}% |"
+        f"| {row['answer_correctness'] * 100:.1f}% "
+        f"| {row['faithfulness'] * 100:.1f}% |"
     )
 
     return f"{answer}\n\n**Metrik Evaluasi**\n{table}"
