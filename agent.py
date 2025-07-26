@@ -1,3 +1,5 @@
+from html.parser import piclose
+
 from langchain_google_genai import GoogleGenerativeAI
 from langchain.agents import initialize_agent, Tool
 from langchain.agents import AgentType
@@ -86,24 +88,20 @@ def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
     ])
 
     full_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
-    prompt = f"""
-        Berikut adalah beberapa informasi yang relevan:
-    
-        {chr(10).join(context_text)}
-    
-        Percakapan sebelumnya:
-        {full_context}
-    
-        user: {user_input}
-    
-        Jawaban:
-        - Pilih tepat satu **kalimat** dari teks di atas yang menjadi jawaban.
-        - Jawaban harus **persis sama** dengan kalimat di konteks (tanpa berubah).
-        - Tidak perlu menambahkan kata lain: outputkan **hanya** kalimat jawaban.
-        - Kalau tidak ditemukan, tulis: “Final Answer: Informasi tidak ditemukan dalam dokumen di atas.”
-    
-        Tulis jawaban diawali dengan: Final Answer:
-        """
+    prompt = (
+        f"Berikut adalah beberapa informasi berita yang relevan:\n\n"
+        f"{context_text}\n\n"
+        f"Percakapan sebelumnya:\n{full_context}\n\n"
+        f"user: {user_input}\n\n"
+        "Jawaban:\n"
+        "Berikan jawaban singkat berdasarkan informasi di atas. "
+        "Jika pengguna tampaknya ingin membaca sumber lengkapnya, dan informasi tersedia, "
+        "tampilkan link artikel yang ada di dalam teks (berupa 'Sumber: https://...'). "
+        "Jika informasi tidak ditemukan, jawab dengan jujur."
+        "Jangan hilangkan tag HTML <a></a> untuk text berupa link."
+        "Jika informasi tidak ditemukan, jawab: 'Final Answer: Informasi tidak ditemukan dalam dokumen di atas.'\n"
+        "Tulis jawaban diawali dengan: Final Answer:"
+    )
 
     try:
         result = agent.invoke({"input": prompt}, handle_parsing_errors=True)
@@ -134,20 +132,24 @@ def chatbot_response(user_input, history):
         contexts.append(f"{clean_text}")
 
     prior_conv = "\n".join(f"{m['role']}: {m['content']}" for m in history)
-    prompt = (
-        "Berikut adalah beberapa informasi yang relevan:\n\n"
-        f"{chr(10).join(contexts)}\n\n"
-        f"Percakapan sebelumnya:\n{prior_conv}\n\n"
-        f"user: {user_input}\n\n"
-        "Jawaban:\n"
-        "Jawab pertanyaan pengguna hanya berdasarkan informasi di atas. "
-        "Jawaban harus langsung, dan hanya menggunakan fakta dari konteks. "
-        "Jika pertanyaan memerlukan nama orang, tempat, atau organisasi, berikan **hanya entitas tersebut**. "
-        "Jika informasi tidak ditemukan, jawab: 'Final Answer: Informasi tidak ditemukan dalam dokumen di atas.'\n"
-        "Tulis jawaban diawali dengan: Final Answer:"
-    )
+    prompt = f"""
+            Berikut adalah beberapa informasi yang relevan:
 
-    print(contexts)
+            {chr(10).join(contexts)}
+
+            Percakapan sebelumnya:
+            {prior_conv}
+
+            user: {user_input}
+
+            Jawaban:
+            - Pilih tepat satu **kalimat** dari teks di atas yang menjadi jawaban.
+            - Jawaban harus **persis sama** dengan kalimat di konteks (tanpa berubah).
+            - Tidak perlu menambahkan kata lain: outputkan **hanya** kalimat jawaban.
+            - Kalau tidak ditemukan, tulis: “Final Answer: Informasi tidak ditemukan dalam dokumen di atas.”
+
+            Tulis jawaban diawali dengan: Final Answer:
+            """
 
     try:
         result = agent.invoke({"input": prompt}, handle_parsing_errors=True)
