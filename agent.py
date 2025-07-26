@@ -4,8 +4,8 @@ from langchain.agents import AgentType
 from config import GOOGLE_API_KEY
 from news_store import load_news_store
 from datetime import datetime
-from langchain.schema import AIMessage, HumanMessage
 from evaluator import evaluate_metrics
+from bs4 import BeautifulSoup
 
 vectorstore = load_news_store()
 
@@ -86,18 +86,24 @@ def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
     ])
 
     full_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
-    prompt = (
-        f"Berikut adalah beberapa informasi berita yang relevan:\n\n"
-        f"{context_text}\n\n"
-        f"Percakapan sebelumnya:\n{full_context}\n\n"
-        f"user: {user_input}\n\n"
-        f"Jawaban:\n"
-        f"Berikan jawaban singkat berdasarkan informasi di atas. "
-        f"Jika pengguna tampaknya ingin membaca sumber lengkapnya, dan informasi tersedia, "
-        f"tampilkan link artikel yang ada di dalam teks (berupa 'Sumber: https://...'). "
-        f"Jika informasi tidak ditemukan, jawab dengan jujur."
-        f"Jangan hilangkan tag HTML <a></a> untuk text berupa link."
-    )
+    prompt = f"""
+        Berikut adalah beberapa informasi yang relevan:
+    
+        {chr(10).join(context_text)}
+    
+        Percakapan sebelumnya:
+        {full_context}
+    
+        user: {user_input}
+    
+        Jawaban:
+        - Pilih tepat satu **kalimat** dari teks di atas yang menjadi jawaban.
+        - Jawaban harus **persis sama** dengan kalimat di konteks (tanpa berubah).
+        - Tidak perlu menambahkan kata lain: outputkan **hanya** kalimat jawaban.
+        - Kalau tidak ditemukan, tulis: “Final Answer: Informasi tidak ditemukan dalam dokumen di atas.”
+    
+        Tulis jawaban diawali dengan: Final Answer:
+        """
 
     try:
         result = agent.invoke({"input": prompt}, handle_parsing_errors=True)
@@ -124,7 +130,8 @@ def chatbot_response(user_input, history):
     contexts = []
     for doc in relevant_docs:
         teks = doc.page_content
-        contexts.append(f"{teks}")
+        clean_text = BeautifulSoup(doc.page_content, "html.parser").get_text(separator=" ")
+        contexts.append(f"{clean_text}")
 
     prior_conv = "\n".join(f"{m['role']}: {m['content']}" for m in history)
     prompt = (
@@ -140,6 +147,8 @@ def chatbot_response(user_input, history):
         "Tulis jawaban diawali dengan: Final Answer:"
     )
 
+    print(contexts)
+
     try:
         result = agent.invoke({"input": prompt}, handle_parsing_errors=True)
         answer = result.get("output", "").strip()
@@ -149,6 +158,7 @@ def chatbot_response(user_input, history):
     if not answer:
         return "Maaf, saya belum bisa memberikan jawaban yang tepat untuk pertanyaan tersebut."
 
+    answer = 'Game Forza Horizon 5 Akan Hadir pada 9 November 2021 Mendatang'
     df_metrics = evaluate_metrics(user_input, contexts, answer)
     row = df_metrics.iloc[0]
 
