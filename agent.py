@@ -160,7 +160,6 @@ def chatbot_response(user_input, history):
     if not answer:
         return "Maaf, saya belum bisa memberikan jawaban yang tepat untuk pertanyaan tersebut."
 
-    answer = 'Game Forza Horizon 5 Akan Hadir pada 9 November 2021 Mendatang'
     df_metrics = evaluate_metrics(user_input, contexts, answer)
     row = df_metrics.iloc[0]
 
