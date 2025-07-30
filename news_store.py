@@ -4,6 +4,7 @@ from datetime import datetime
 from embeddings import embedding
 from sqlalchemy import create_engine, text
 import json
+from bs4 import BeautifulSoup
 
 with open('data/news_articles.json', 'r', encoding='utf-8') as file:
     news_form = json.load(file)
@@ -34,13 +35,39 @@ def fetch_news_from_db():
             articles.append(article)
         return articles
 
+
 def save_news():
     news_articles = fetch_news_from_db()
+    all_articles = news_articles + news_form
 
-    docs = [create_document(article) for article in news_articles + news_form]
+    docs = []
+
+    for article in all_articles:
+        if not article.get("content"):
+            continue
+
+        clean_content = BeautifulSoup(article["content"], "html.parser").get_text(separator=" ")
+
+        article["content"] = clean_content
+
+        try:
+            doc = create_document(article)
+            docs.append(doc)
+        except Exception as e:
+            print(f"Gagal membuat dokumen untuk: {article.get('title')} - {e}")
 
     vectorstore = FAISS.from_documents(docs, embedding)
     vectorstore.save_local("news_index")
+
+    print(f"✅ Total dokumen disimpan di FAISS: {len(vectorstore.docstore._dict)}")
+
+    for doc in vectorstore.docstore._dict.values():
+        if "fspmi" in doc.page_content.lower():
+            print("✅ DOKUMEN FSPMI DITEMUKAN")
+            print("Title:", doc.metadata.get("title"))
+            print("Slug:", doc.metadata.get("slug"))
+            print("Excerpt:", doc.page_content[:300])
+            print("=" * 50)
 
 def create_document(article):
     metadata = {
@@ -59,6 +86,5 @@ def create_document(article):
 def load_news_store():
     return FAISS.load_local("news_index", embedding, allow_dangerous_deserialization=True)
 
-# Jalankan pertama kali untuk menyimpan data berita
 if __name__ == "__main__":
     save_news()

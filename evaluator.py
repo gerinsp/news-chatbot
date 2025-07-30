@@ -38,7 +38,7 @@ def evaluate_metrics(query: str, contexts: list[str], answer: str, reference: st
         "user_input": [query],
         "response": [answer],
         "retrieved_contexts": [contexts],
-        "ground_truth": [reference],  # ganti jika punya ground truth berbeda
+        "ground_truth": [reference],
     }
     ds = Dataset.from_dict(data)
     result = evaluate(

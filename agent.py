@@ -1,5 +1,3 @@
-from html.parser import piclose
-
 from langchain_google_genai import GoogleGenerativeAI
 from langchain.agents import initialize_agent, Tool
 from langchain.agents import AgentType
@@ -69,28 +67,47 @@ agent = initialize_agent(
     tools, chat_model, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=False
 )
 
-
 def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
     relevant_docs = vectorstore.similarity_search(user_input, k=5)
+    for i, doc in enumerate(relevant_docs):
+        if "pencak silat Kabupaten Kudus" in doc.page_content:
+            print(f"\n--- DOC {i} ---\n{doc.page_content}")
 
     if not relevant_docs:
         return {
             "answer": "Maaf, saya tidak menemukan informasi yang relevan untuk menjawab pertanyaan Anda."
         }
 
-    context_text = "\n\n".join([
-        f"""{doc.page_content}<br>
-        Sumber: <a href="http://127.0.0.1:8000/posts/{doc.metadata['slug']}" target="_blank">
-          http://127.0.0.1:8000/posts/{doc.metadata['slug']}
-        </a><br>"""
-        for doc in relevant_docs
-        if 'slug' in doc.metadata
-    ])
+    # List untuk context yang bersih untuk model
+    clean_context_list = []
 
+    # List untuk context + link (untuk dilihat manusia atau model yang bisa baca HTML)
+    linked_context_list = []
+
+    for doc in relevant_docs:
+        # Bersihkan teks dari HTML
+        clean_text = BeautifulSoup(doc.page_content, "html.parser").get_text(separator=" ")
+        clean_context_list.append(clean_text)
+
+        # Tambahkan link jika slug tersedia
+        if 'slug' in doc.metadata:
+            linked_context_list.append(
+                f"""{clean_text}<br>
+                Sumber: <a href="http://127.0.0.1:8000/posts/{doc.metadata['slug']}" target="_blank">
+                  http://127.0.0.1:8000/posts/{doc.metadata['slug']}
+                </a><br>"""
+            )
+
+    # Gabungkan untuk prompt
+    context_text_for_prompt = "\n\n".join(linked_context_list)
+
+    # Gabungkan riwayat chat
     full_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+
+    # Prompt
     prompt = (
         f"Berikut adalah beberapa informasi berita yang relevan:\n\n"
-        f"{context_text}\n\n"
+        f"{context_text_for_prompt}\n\n"
         f"Percakapan sebelumnya:\n{full_context}\n\n"
         f"user: {user_input}\n\n"
         "Jawaban:\n"
@@ -109,11 +126,6 @@ def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
     except Exception as e:
         return {
             "answer": f"Terjadi kesalahan saat memproses jawaban: {str(e)}"
-        }
-
-    if not answer:
-        return {
-            "answer": "Maaf, saya belum bisa memberikan jawaban yang tepat untuk pertanyaan tersebut."
         }
 
     return {
@@ -160,6 +172,7 @@ def chatbot_response(user_input, history):
     if not answer:
         return "Maaf, saya belum bisa memberikan jawaban yang tepat untuk pertanyaan tersebut."
 
+    print(f"conteks: {contexts}")
     df_metrics = evaluate_metrics(user_input, contexts, answer)
     row = df_metrics.iloc[0]
 
