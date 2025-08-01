@@ -68,7 +68,7 @@ agent = initialize_agent(
 )
 
 def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
-    relevant_docs = vectorstore.similarity_search(user_input, k=5)
+    relevant_docs = vectorstore.similarity_search(user_input, k=10)
     for i, doc in enumerate(relevant_docs):
         if "pencak silat Kabupaten Kudus" in doc.page_content:
             print(f"\n--- DOC {i} ---\n{doc.page_content}")
