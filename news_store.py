@@ -5,6 +5,7 @@ from embeddings import embedding
 from sqlalchemy import create_engine, text
 import json
 from bs4 import BeautifulSoup
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 with open('data/news_articles.json', 'r', encoding='utf-8') as file:
     news_form = json.load(file)
@@ -41,33 +42,44 @@ def save_news():
     all_articles = news_articles + news_form
 
     docs = []
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=50,
+        separators=["\n\n", "\n", ".", " "]
+    )
 
     for article in all_articles:
         if not article.get("content"):
             continue
 
         clean_content = BeautifulSoup(article["content"], "html.parser").get_text(separator=" ")
-
         article["content"] = clean_content
 
         try:
-            doc = create_document(article)
-            docs.append(doc)
+            chunks = splitter.split_text(article["content"])
+            for i, chunk in enumerate(chunks):
+                metadata = {
+                    "title": article["title"],
+                    "type": article["type"],
+                    "slug": article.get("slug"),
+                    "chunk_id": i
+                }
+                if article.get("date"):
+                    try:
+                        metadata["date"] = datetime.strptime(article["date"], "%Y-%m-%d")
+                    except ValueError:
+                        pass
+
+                doc = Document(page_content=chunk, metadata=metadata)
+                docs.append(doc)
+
         except Exception as e:
-            print(f"Gagal membuat dokumen untuk: {article.get('title')} - {e}")
+            print(f"Gagal memproses artikel: {article.get('title')} - {e}")
 
     vectorstore = FAISS.from_documents(docs, embedding)
     vectorstore.save_local("news_index")
 
-    print(f"✅ Total dokumen disimpan di FAISS: {len(vectorstore.docstore._dict)}")
-
-    for doc in vectorstore.docstore._dict.values():
-        if "fspmi" in doc.page_content.lower():
-            print("✅ DOKUMEN FSPMI DITEMUKAN")
-            print("Title:", doc.metadata.get("title"))
-            print("Slug:", doc.metadata.get("slug"))
-            print("Excerpt:", doc.page_content[:300])
-            print("=" * 50)
+    print(f"Total dokumen (chunks) disimpan di FAISS: {len(vectorstore.docstore._dict)}")
 
 def create_document(article):
     metadata = {

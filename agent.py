@@ -23,7 +23,7 @@ def get_relevant_news(query):
     for doc in docs:
         title = doc.metadata['title']
         content = doc.page_content
-        date = doc.metadata['date'].strftime('%d %B %Y')  # Format tanggal: 2 April 2025
+        date = doc.metadata['date'].strftime('%d %B %Y')
         formatted_doc = f"**{title}**\ndiposting tanggal {date}\n{content}"
         formatted_docs.append(formatted_doc)
 
@@ -78,18 +78,14 @@ def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
             "answer": "Maaf, saya tidak menemukan informasi yang relevan untuk menjawab pertanyaan Anda."
         }
 
-    # List untuk context yang bersih untuk model
     clean_context_list = []
 
-    # List untuk context + link (untuk dilihat manusia atau model yang bisa baca HTML)
     linked_context_list = []
 
     for doc in relevant_docs:
-        # Bersihkan teks dari HTML
         clean_text = BeautifulSoup(doc.page_content, "html.parser").get_text(separator=" ")
         clean_context_list.append(clean_text)
 
-        # Tambahkan link jika slug tersedia
         if 'slug' in doc.metadata:
             linked_context_list.append(
                 f"""{clean_text}<br>
@@ -98,13 +94,10 @@ def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
                 </a><br>"""
             )
 
-    # Gabungkan untuk prompt
     context_text_for_prompt = "\n\n".join(linked_context_list)
 
-    # Gabungkan riwayat chat
     full_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
 
-    # Prompt
     prompt = (
         f"Berikut adalah beberapa informasi berita yang relevan:\n\n"
         f"{context_text_for_prompt}\n\n"
@@ -133,7 +126,7 @@ def chatbot_response_api(user_input: str, history: list[dict]) -> dict:
     }
 
 def chatbot_response(user_input, history):
-    relevant_docs = vectorstore.similarity_search(user_input, k=1)
+    relevant_docs = vectorstore.similarity_search(user_input, k=5)
     if not relevant_docs:
         return "Maaf, saya tidak menemukan informasi yang relevan untuk menjawab pertanyaan Anda."
 
