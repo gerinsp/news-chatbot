@@ -16,6 +16,3 @@ sample = SingleTurnSample(
     response="information not found in the above document.",
     retrieved_contexts=["The Eiffel Tower is located in Paris."],
 )
-
-
-await context_precision.single_turn_ascore(sample)
